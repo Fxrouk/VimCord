@@ -10,9 +10,16 @@ export default definePlugin({
         const selectors = {
             servers: "div[role='treeitem'][data-list-item-id^='guildsnav']",
             channels: "[data-list-item-id^='channels']",
-            channelsContainer: ".scroller__629e4.thin__99f8c.scrollerBase__99f8c.fade__99f8c.customTheme__99f8c", 
+            channelsContainer: ".scroller__629e4.thin__99f8c.scrollerBase__99f8c.fade__99f8c.customTheme__99f8c",
+            messagesContainer: ".scroller__36d07.customTheme_d125d2.auto_d125d2.scrollerBase_d125d2.disableScrollAnchor_d125d2.managedReactiveScroller_d125d2",
             messages: ".message",
-            messageInput: 'div[role="textbox"][aria-label="Message #"]'
+            messageInput: 'div[role="textbox"][aria-label="Message #"]',
+            userSettings: 'button[aria-label="Paramètres utilisateur"]'
+        };
+
+        const config = {
+            scrollSpeed: 0.25,
+            smoothScrolling: false
         };
 
         let keyBindings: Record<string, HTMLElement> = {};
@@ -105,11 +112,49 @@ export default definePlugin({
         const scrollChannels = (direction: 'up' | 'down') => {
             const container = document.querySelector(selectors.channelsContainer) as HTMLElement;
             if (container) {
-                const scrollAmount = window.innerHeight * 0.4;
+                const scrollAmount = window.innerHeight * config.scrollSpeed;
                 container.scrollBy({
                     top: direction === 'up' ? -scrollAmount : scrollAmount,
-                    behavior: 'smooth'
+                    behavior: config.smoothScrolling ? 'smooth' : 'auto'
                 });
+            }
+        };
+
+        const scrollMessages = (direction: 'up' | 'down') => {
+            const container = document.querySelector(selectors.messagesContainer) as HTMLElement;
+            if (container) {
+                const scrollAmount = window.innerHeight * config.scrollSpeed;
+                container.scrollBy({
+                    top: direction === 'up' ? -scrollAmount : scrollAmount,
+                    behavior: config.smoothScrolling ? 'smooth' : 'auto'
+                });
+            }
+        };
+
+        const scrollToBottom = () => {
+            const container = document.querySelector(selectors.messagesContainer) as HTMLElement;
+            if (container) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: config.smoothScrolling ? 'smooth' : 'auto'
+                });
+            }
+        };
+
+        const openUserSettings = () => {
+            const settingsButton = document.querySelector(selectors.userSettings) as HTMLElement;
+            if (settingsButton) {
+                settingsButton.click();
+
+                setTimeout(() => {
+                    const settingsPanel = document.querySelector('[role="dialog"][aria-label*="paramètres"]');
+                    if (settingsPanel) {
+                        const firstFocusable = settingsPanel.querySelector<HTMLElement>(
+                            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+                        );
+                        firstFocusable?.focus();
+                    }
+                }, 200);
             }
         };
 
@@ -170,7 +215,6 @@ export default definePlugin({
                           target instanceof HTMLTextAreaElement ||
                           target?.isContentEditable;
 
-
             if (Object.keys(keyBindings).length === 0 && !isInput) {
                 if (e.key === 'i') {
                     scrollChannels('up');
@@ -182,9 +226,28 @@ export default definePlugin({
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     return;
+                } else if (e.key === 'o') {
+                    scrollMessages('up');
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    return;
+                } else if (e.key === 'l') {
+                    scrollMessages('down');
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    return;
+                } else if (e.key === 'G' && e.shiftKey) {
+                    scrollToBottom();
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    return;
+                } else if (e.key === 'u') {
+                    openUserSettings();
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    return;
                 }
             }
-
 
             if (Object.keys(keyBindings).length > 0) {
                 if (pendingPrefix) {
