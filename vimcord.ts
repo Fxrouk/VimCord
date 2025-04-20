@@ -25,6 +25,7 @@ export default definePlugin({
         let keyBindings: Record<string, HTMLElement> = {};
         let hintElements: HTMLElement[] = [];
         let pendingPrefix: string | null = null;
+        let helpModal: HTMLElement | null = null;
 
         const isElementInViewport = (el: HTMLElement) => {
             const rect = el.getBoundingClientRect();
@@ -85,6 +86,11 @@ export default definePlugin({
                     (closeButton as HTMLElement).click();
                 }
             });
+
+            if (helpModal) {
+                helpModal.remove();
+                helpModal = null;
+            }
         };
 
         const isElementVisible = (el: HTMLElement) => {
@@ -209,6 +215,83 @@ export default definePlugin({
             pendingPrefix = null;
         };
 
+        const showHelp = () => {
+            if (helpModal) {
+                helpModal.remove();
+                helpModal = null;
+                return;
+            }
+
+            helpModal = document.createElement("div");
+            helpModal.style.position = "fixed";
+            helpModal.style.top = "50%";
+            helpModal.style.left = "50%";
+            helpModal.style.transform = "translate(-50%, -50%)";
+            helpModal.style.backgroundColor = "#18191c";
+            helpModal.style.border = "1px solid #4f545c";
+            helpModal.style.borderRadius = "8px";
+            helpModal.style.padding = "20px";
+            helpModal.style.zIndex = "10000";
+            helpModal.style.boxShadow = "0 4px 20px rgba(0,0,0,0.3)";
+            helpModal.style.color = "white";
+            helpModal.style.width = "400px";
+            helpModal.style.maxWidth = "90vw";
+            helpModal.style.maxHeight = "80vh";
+            helpModal.style.overflow = "auto";
+
+            const title = document.createElement("h3");
+            title.textContent = "VimCord - Raccourcis clavier";
+            title.style.marginTop = "0";
+            title.style.color = "#7289da";
+            helpModal.appendChild(title);
+
+            const shortcuts = [
+                { key: "i", desc: "Défiler les canaux vers le haut" },
+                { key: "k", desc: "Défiler les canaux vers le bas" },
+                { key: "o", desc: "Défiler les messages vers le haut" },
+                { key: "l", desc: "Défiler les messages vers le bas" },
+                { key: "Shift + G", desc: "Aller en bas des messages" },
+                { key: "u", desc: "Ouvrir les paramètres utilisateur" },
+                { key: "f", desc: "Mode hints (navigation rapide)" },
+                { key: "?", desc: "Afficher/masquer cette aide" },
+                { key: "Echap", desc: "Quitter le mode actuel/fermer les menus" }
+            ];
+
+            const list = document.createElement("ul");
+            list.style.paddingLeft = "20px";
+            shortcuts.forEach(shortcut => {
+                const item = document.createElement("li");
+                item.style.margin = "8px 0";
+                const keySpan = document.createElement("span");
+                keySpan.textContent = shortcut.key;
+                keySpan.style.display = "inline-block";
+                keySpan.style.width = "100px";
+                keySpan.style.fontWeight = "bold";
+                keySpan.style.color = "#9e01df";
+                item.appendChild(keySpan);
+                item.appendChild(document.createTextNode(shortcut.desc));
+                list.appendChild(item);
+            });
+
+            helpModal.appendChild(list);
+            document.body.appendChild(helpModal);
+
+            const closeButton = document.createElement("button");
+            closeButton.textContent = "Fermer";
+            closeButton.style.marginTop = "15px";
+            closeButton.style.padding = "6px 12px";
+            closeButton.style.backgroundColor = "#7289da";
+            closeButton.style.color = "white";
+            closeButton.style.border = "none";
+            closeButton.style.borderRadius = "4px";
+            closeButton.style.cursor = "pointer";
+            closeButton.onclick = () => {
+                if (helpModal) helpModal.remove();
+                helpModal = null;
+            };
+            helpModal.appendChild(closeButton);
+        };
+
         const handleKeyPress = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
             const isInput = target instanceof HTMLInputElement ||
@@ -243,6 +326,11 @@ export default definePlugin({
                     return;
                 } else if (e.key === 'u') {
                     openUserSettings();
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    return;
+                } else if (e.key === '?') {
+                    showHelp();
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     return;
@@ -304,6 +392,7 @@ export default definePlugin({
         return () => {
             document.removeEventListener("keydown", handleKeyPress, true);
             cleanupHints();
+            if (helpModal) helpModal.remove();
         };
     },
 
