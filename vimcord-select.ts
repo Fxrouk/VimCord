@@ -7,7 +7,7 @@ export default definePlugin({
     dependencies: ["CommandsAPI"],
 
     start() {
-        // Configuration
+
         const config = {
             hintKeys: 'abcdeghjmnpqrtuvwxyz'.split(''),
             hintColors: {
@@ -50,7 +50,6 @@ export default definePlugin({
             }
         };
 
-        // Éléments du DOM
         const DOM = {
             getVisibleMessages: () => {
                 const allMessages = Array.from(document.querySelectorAll('.message__5126c'));
@@ -73,7 +72,6 @@ export default definePlugin({
             deleteMenuItem: () => document.querySelector('#message-delete')
         };
 
-        // État
         let state = {
             mode: "idle" as "idle" | "messageSelect" | "menuSelect",
             hints: [] as HTMLElement[],
@@ -82,7 +80,6 @@ export default definePlugin({
             shortcutsPanel: null as HTMLElement | null
         };
 
-        // Fonctions utilitaires
         const utils = {
             createHint: (key: string, element: HTMLElement, color: string, isMenuItem: boolean = false) => {
                 const hint = document.createElement("div");
@@ -345,7 +342,6 @@ export default definePlugin({
             }
         };
 
-        // Gestion des touches
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 utils.cleanup();
@@ -384,7 +380,6 @@ export default definePlugin({
             }
         };
 
-        // Initialisation
         document.addEventListener('keydown', handleKeyDown, true);
 
         return () => {
