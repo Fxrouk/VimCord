@@ -108,7 +108,7 @@ export default definePlugin({
 
                     const restSpan = document.createElement('span');
                     restSpan.textContent = hintText.slice(1);
-                    restSpan.style.color = 'white';
+                    restSpan.style.color = 'white'; 
 
                     hint.innerHTML = '';
                     hint.appendChild(zSpan);
@@ -269,7 +269,7 @@ export default definePlugin({
                 return rectA.top - rectB.top || rectA.left - rectB.left;
             });
 
-            const singleLetterNavTargets = navTargets.slice(0, 19);
+            const singleLetterNavTargets = navTargets.slice(0, 16);
             singleLetterNavTargets.forEach((target, index) => {
                 const key = String.fromCharCode(97 + index);
                 if (target && target.offsetParent !== null) {
@@ -278,8 +278,8 @@ export default definePlugin({
                 }
             });
 
-            if (navTargets.length > 19) {
-                const twoLetterNavTargets = navTargets.slice(19);
+            if (navTargets.length > 16) {
+                const twoLetterNavTargets = navTargets.slice(16);
                 twoLetterNavTargets.forEach((target, index) => {
                     const suffix = String.fromCharCode(97 + (index % 26));
                     const keyCombo = 'z' + suffix;
@@ -291,7 +291,7 @@ export default definePlugin({
                 });
             }
 
-            const singleLetterMsgTargets = msgTargets.slice(0, 19);
+            const singleLetterMsgTargets = msgTargets.slice(0, 16);
             singleLetterMsgTargets.forEach((target, index) => {
                 const key = 'r' + String.fromCharCode(97 + index);
                 if (target && target.offsetParent !== null) {
@@ -300,8 +300,8 @@ export default definePlugin({
                 }
             });
 
-            if (msgTargets.length > 19) {
-                const twoLetterMsgTargets = msgTargets.slice(19);
+            if (msgTargets.length > 16) {
+                const twoLetterMsgTargets = msgTargets.slice(16);
                 twoLetterMsgTargets.forEach((target, index) => {
                     const suffix = String.fromCharCode(97 + (index % 26));
                     const keyCombo = 'rz' + suffix;
@@ -360,6 +360,10 @@ export default definePlugin({
                 { key: "Shift + G", desc: "Aller en bas des messages" },
                 { key: "u", desc: "Ouvrir les paramètres utilisateur" },
                 { key: "f", desc: "Mode hints (navigation rapide)" },
+                { key: "s", desc: "Si associé à VimCord-Select, permet d'interagir avec les messages dans la discussion." },
+                { key: "m", desc: "Si associé à VimCord-Select, permet de modifier son message une fois le message selectionné." },
+                { key: "d", desc: "Si associé à VimCord-Select, permet de supprimer son message une fois le message selectionné." },
+                { key: "r", desc: "Si associé à VimCord-Select, permet de répondre à un  message une fois le message selectionné." },
                 { key: "?", desc: "Afficher/masquer cette aide" },
                 { key: "Echap", desc: "Quitter le mode actuel/fermer les menus" }
             ];
