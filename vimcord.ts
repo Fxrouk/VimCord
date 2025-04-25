@@ -22,10 +22,16 @@ export default definePlugin({
             smoothScrolling: false
         };
 
-        let keyBindings: Record<string, HTMLElement> = {};
+        interface KeyBinding {
+            target: HTMLElement;
+            type: 'nav' | 'msg';
+        }
+
+        let keyBindings: Record<string, KeyBinding> = {};
         let hintElements: HTMLElement[] = [];
         let pendingPrefix: string | null = null;
         let helpModal: HTMLElement | null = null;
+        let pressedKeys: string[] = [];
 
         const isElementInViewport = (el: HTMLElement) => {
             const rect = el.getBoundingClientRect();
@@ -69,6 +75,55 @@ export default definePlugin({
             return hint;
         };
 
+        const createMessageHint = (key: string, target: HTMLElement) => {
+            const hint = document.createElement("div");
+            hint.textContent = key;
+            hint.style.position = "fixed";
+            hint.style.backgroundColor = "#ff0000";
+            hint.style.color = "white";
+            hint.style.padding = "2px 6px";
+            hint.style.borderRadius = "4px";
+            hint.style.fontSize = "14px";
+            hint.style.fontWeight = "bold";
+            hint.style.zIndex = "9999";
+            hint.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+            hint.style.pointerEvents = "none";
+
+            const rect = target.getBoundingClientRect();
+            hint.style.left = `${rect.left + window.scrollX - 20}px`;
+            hint.style.top = `${rect.top + window.scrollY}px`;
+
+            document.body.appendChild(hint);
+            return hint;
+        };
+
+        const updateHintStyles = (currentCombo: string) => {
+            hintElements.forEach(hint => {
+                const hintText = hint.textContent || '';
+                if (hintText.startsWith(currentCombo)) {
+                    // Créer un span pour le "z" avec la couleur spécifique
+                    const zSpan = document.createElement('span');
+                    zSpan.textContent = 'z';
+                    zSpan.style.color = '#520175';
+                    zSpan.style.fontWeight = 'bold';
+
+                    // Créer un span pour le reste du texte
+                    const restSpan = document.createElement('span');
+                    restSpan.textContent = hintText.slice(1);
+                    restSpan.style.color = 'white'; // Couleur d'origine
+
+                    // Vider le hint et ajouter les nouveaux spans
+                    hint.innerHTML = '';
+                    hint.appendChild(zSpan);
+                    hint.appendChild(restSpan);
+
+                    hint.style.backgroundColor = "#9e01df"; // Fond d'origine
+                    hint.style.display = "block";
+                } else {
+                    hint.style.display = "none";
+                }
+            });
+        };
         const performEscapeAction = () => {
             const activeElement = document.activeElement as HTMLElement;
             if (activeElement && (
@@ -97,20 +152,42 @@ export default definePlugin({
             return el.offsetWidth > 0 && el.offsetHeight > 0;
         };
 
-        const handleElementClick = (element: HTMLElement) => {
+        const handleElementClick = (element: HTMLElement, type: 'nav' | 'msg') => {
             element.click();
             cleanupHints();
 
             setTimeout(() => {
                 performEscapeAction();
 
-                if (element.matches(selectors.channels)) {
-                    setTimeout(() => {
-                        const messageInput = document.querySelector(selectors.messageInput) as HTMLElement;
-                        if (messageInput) {
-                            messageInput.focus();
+                if (type === 'nav') {
+                    if (element.matches(selectors.channels)) {
+                        setTimeout(() => {
+                            const messageInput = document.querySelector(selectors.messageInput) as HTMLElement;
+                            if (messageInput) {
+                                messageInput.focus();
+                            }
+                        }, 100);
+                    }
+                } else if (type === 'msg') {
+                    const messageInput = document.querySelector(selectors.messageInput) as HTMLElement;
+                    if (messageInput) {
+                        messageInput.focus();
+
+                        const usernameElement = element.querySelector('[id^="message-username-"]');
+                        if (usernameElement) {
+                            const username = usernameElement.textContent;
+                            if (username) {
+                                const range = document.createRange();
+                                range.selectNodeContents(messageInput);
+                                range.collapse(false);
+                                const selection = window.getSelection();
+                                selection?.removeAllRanges();
+                                selection?.addRange(range);
+
+                                document.execCommand('insertText', false, `@${username} `);
+                            }
                         }
-                    }, 100);
+                    }
                 }
             }, 50);
         };
@@ -166,9 +243,11 @@ export default definePlugin({
 
         const showHints = () => {
             cleanupHints();
+            pressedKeys = [];
 
             const serverElements = document.querySelectorAll(selectors.servers);
             const channelElements = document.querySelectorAll(selectors.channels);
+            const messageElements = document.querySelectorAll(selectors.messages);
 
             const visibleServerTargets = Array.from(serverElements)
                 .filter(el => isElementPartiallyInViewport(el as HTMLElement)) as HTMLElement[];
@@ -176,33 +255,63 @@ export default definePlugin({
             const visibleChannelTargets = Array.from(channelElements)
                 .filter(el => isElementPartiallyInViewport(el as HTMLElement)) as HTMLElement[];
 
-            const allTargets = [...visibleServerTargets, ...visibleChannelTargets];
+            const visibleMessageTargets = Array.from(messageElements)
+                .filter(el => isElementPartiallyInViewport(el as HTMLElement)) as HTMLElement[];
 
-            allTargets.sort((a, b) => {
+            const navTargets = [...visibleServerTargets, ...visibleChannelTargets];
+            navTargets.sort((a, b) => {
                 const rectA = a.getBoundingClientRect();
                 const rectB = b.getBoundingClientRect();
                 return rectA.top - rectB.top || rectA.left - rectB.left;
             });
 
-            const singleLetterTargets = allTargets.slice(0, 19);
-            singleLetterTargets.forEach((target, index) => {
+            const msgTargets = [...visibleMessageTargets];
+            msgTargets.sort((a, b) => {
+                const rectA = a.getBoundingClientRect();
+                const rectB = b.getBoundingClientRect();
+                return rectA.top - rectB.top || rectA.left - rectB.left;
+            });
+
+            const singleLetterNavTargets = navTargets.slice(0, 19);
+            singleLetterNavTargets.forEach((target, index) => {
                 const key = String.fromCharCode(97 + index);
                 if (target && target.offsetParent !== null) {
-                    keyBindings[key] = target;
+                    keyBindings[key] = { target, type: 'nav' };
                     hintElements.push(createHint(key, target));
                 }
             });
 
-            if (allTargets.length > 19) {
-                const twoLetterTargets = allTargets.slice(19);
-
-                twoLetterTargets.forEach((target, index) => {
+            if (navTargets.length > 19) {
+                const twoLetterNavTargets = navTargets.slice(19);
+                twoLetterNavTargets.forEach((target, index) => {
                     const suffix = String.fromCharCode(97 + (index % 26));
                     const keyCombo = 'z' + suffix;
 
                     if (target && target.offsetParent !== null) {
-                        keyBindings[keyCombo] = target;
+                        keyBindings[keyCombo] = { target, type: 'nav' };
                         hintElements.push(createHint(keyCombo, target));
+                    }
+                });
+            }
+
+            const singleLetterMsgTargets = msgTargets.slice(0, 19);
+            singleLetterMsgTargets.forEach((target, index) => {
+                const key = 'r' + String.fromCharCode(97 + index);
+                if (target && target.offsetParent !== null) {
+                    keyBindings[key] = { target, type: 'msg' };
+                    hintElements.push(createMessageHint(key, target));
+                }
+            });
+
+            if (msgTargets.length > 19) {
+                const twoLetterMsgTargets = msgTargets.slice(19);
+                twoLetterMsgTargets.forEach((target, index) => {
+                    const suffix = String.fromCharCode(97 + (index % 26));
+                    const keyCombo = 'rz' + suffix;
+
+                    if (target && target.offsetParent !== null) {
+                        keyBindings[keyCombo] = { target, type: 'msg' };
+                        hintElements.push(createMessageHint(keyCombo, target));
                     }
                 });
             }
@@ -213,6 +322,7 @@ export default definePlugin({
             hintElements = [];
             keyBindings = {};
             pendingPrefix = null;
+            pressedKeys = [];
         };
 
         const showHelp = () => {
@@ -274,7 +384,6 @@ export default definePlugin({
             });
 
             helpModal.appendChild(list);
-            document.body.appendChild(helpModal);
 
             const closeButton = document.createElement("button");
             closeButton.textContent = "Fermer";
@@ -290,6 +399,8 @@ export default definePlugin({
                 helpModal = null;
             };
             helpModal.appendChild(closeButton);
+
+            document.body.appendChild(helpModal);
         };
 
         const handleKeyPress = (e: KeyboardEvent) => {
@@ -340,13 +451,14 @@ export default definePlugin({
             if (Object.keys(keyBindings).length > 0) {
                 if (pendingPrefix) {
                     if (e.key.length === 1 && e.key.match(/[a-z]/)) {
-                        const fullCombo = pendingPrefix + e.key;
+                        pressedKeys.push(e.key);
+                        const fullCombo = pressedKeys.join('');
+                        updateHintStyles(fullCombo);
+
                         if (keyBindings[fullCombo]) {
-                            handleElementClick(keyBindings[fullCombo]);
+                            handleElementClick(keyBindings[fullCombo].target, keyBindings[fullCombo].type);
                             e.preventDefault();
                             e.stopImmediatePropagation();
-                        } else {
-                            cleanupHints();
                         }
                     } else if (e.key === "Escape") {
                         cleanupHints();
@@ -356,13 +468,17 @@ export default definePlugin({
 
                 if (e.key === 'z') {
                     pendingPrefix = e.key;
+                    pressedKeys = [e.key];
+                    updateHintStyles(pressedKeys.join(''));
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     return;
                 }
 
                 if (keyBindings[e.key]) {
-                    handleElementClick(keyBindings[e.key]);
+                    pressedKeys = [e.key];
+                    updateHintStyles(pressedKeys.join(''));
+                    handleElementClick(keyBindings[e.key].target, keyBindings[e.key].type);
                     e.preventDefault();
                     e.stopImmediatePropagation();
                 } else if (e.key === "Escape") {
