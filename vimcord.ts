@@ -101,23 +101,20 @@ export default definePlugin({
             hintElements.forEach(hint => {
                 const hintText = hint.textContent || '';
                 if (hintText.startsWith(currentCombo)) {
-                    // Créer un span pour le "z" avec la couleur spécifique
                     const zSpan = document.createElement('span');
                     zSpan.textContent = 'z';
                     zSpan.style.color = '#520175';
                     zSpan.style.fontWeight = 'bold';
 
-                    // Créer un span pour le reste du texte
                     const restSpan = document.createElement('span');
                     restSpan.textContent = hintText.slice(1);
-                    restSpan.style.color = 'white'; // Couleur d'origine
+                    restSpan.style.color = 'white';
 
-                    // Vider le hint et ajouter les nouveaux spans
                     hint.innerHTML = '';
                     hint.appendChild(zSpan);
                     hint.appendChild(restSpan);
 
-                    hint.style.backgroundColor = "#9e01df"; // Fond d'origine
+                    hint.style.backgroundColor = "#9e01df"; 
                     hint.style.display = "block";
                 } else {
                     hint.style.display = "none";
