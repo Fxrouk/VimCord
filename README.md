@@ -1,4 +1,4 @@
-# VimCord
+# VimCord 2.1.2
 Vimium-style navigation with keyboard controls.
 Keyboard-powered navigation and message interaction for Discord.
 🎥 [VimCord](https://youtu.be/0eI0_Dnu_o4)
