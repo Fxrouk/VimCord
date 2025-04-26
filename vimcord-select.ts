@@ -7,16 +7,19 @@ export default definePlugin({
     dependencies: ["CommandsAPI"],
 
     start() {
-
         const config = {
-            hintKeys: 'abcdeghjmnpqrtuvwxyz'.split(''),
+            hintKeys: 'abcdeghijklmnopqrstvwxy'.split(''),
             hintColors: {
                 message: "#B352DD",
                 menu: "#B352DD",
+                media: "#F202F2",
+                link: "#F202F2",
                 text: "#ffffff"
             },
             highlightColor: "rgba(114, 137, 218, 0.3)",
             messageHintOffset: { x: 5, y: 5 },
+            mediaHintOffset: { x: 5, y: 5 },
+            linkHintOffset: { x: 5, y: 5 },
             menuHintOffset: { x: -30, y: -12 },
             shortcutsPanel: {
                 position: "fixed",
@@ -51,9 +54,20 @@ export default definePlugin({
         };
 
         const DOM = {
-            getVisibleMessages: () => {
+            getAllLinks: () => {
+                return Array.from(document.querySelectorAll(
+                    '.message__5126c a[href], .chatContent__5dca8 a[href]'
+                )) as HTMLElement[];
+            },
+            getVisibleElements: () => {
+                const elements = {
+                    messages: [] as HTMLElement[],
+                    media: [] as HTMLElement[],
+                    links: [] as HTMLElement[]
+                };
+
                 const allMessages = Array.from(document.querySelectorAll('.message__5126c'));
-                return allMessages.filter(msg => {
+                elements.messages = allMessages.filter(msg => {
                     const rect = msg.getBoundingClientRect();
                     return (
                         rect.top >= 0 &&
@@ -62,6 +76,31 @@ export default definePlugin({
                         rect.right <= (window.innerWidth || document.documentElement.clientWidth)
                     );
                 }) as HTMLElement[];
+
+                const mediaElements = Array.from(document.querySelectorAll(
+                    '.message__5126c img, .message__5126c video, .message__5126c .embedWrapper__6d7d7'
+                ));
+                elements.media = mediaElements.filter(el => {
+                    const rect = el.getBoundingClientRect();
+                    return (
+                        rect.top >= 0 &&
+                        rect.left >= 0 &&
+                        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+                    );
+                }) as HTMLElement[];
+
+                const allLinks = DOM.getAllLinks();
+                elements.links = allLinks.filter(link => {
+                    const rect = link.getBoundingClientRect();
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        getComputedStyle(link).visibility !== 'hidden'
+                    );
+                });
+
+                return elements;
             },
             contextMenu: () => document.querySelector('[role="menu"]'),
             menuItems: () => document.querySelectorAll('[role="menu"] [role="menuitem"]'),
@@ -69,23 +108,41 @@ export default definePlugin({
             messageContent: () => document.querySelectorAll('.messageContent__21e69'),
             replyMenuItem: () => document.querySelector('#message-reply'),
             editMenuItem: () => document.querySelector('#message-edit'),
-            deleteMenuItem: () => document.querySelector('#message-delete')
+            deleteMenuItem: () => document.querySelector('#message-delete'),
+            getMenuItems: () => {
+                return {
+                    reply: document.querySelector('#message-reply'),
+                    edit: document.querySelector('#message-edit'),
+                    delete: document.querySelector('#message-delete')
+                };
+            },
+            getMediaViewer: () => document.querySelector('[class^="imageWrapper-"]')
         };
+
 
         let state = {
-            mode: "idle" as "idle" | "messageSelect" | "menuSelect",
+            mode: "idle" as "idle" | "elementSelect" | "menuSelect",
             hints: [] as HTMLElement[],
-            selectedMessage: null as HTMLElement | null,
+            selectedElement: null as HTMLElement | null,
             menuObserver: null as MutationObserver | null,
-            shortcutsPanel: null as HTMLElement | null
+            shortcutsPanel: null as HTMLElement | null,
+            elementsMap: new Map<string, {element: HTMLElement, type: string}>(),
+            menuActions: new Map<string, {action: string, element: HTMLElement | null}>([
+                ['r', {action: 'reply', element: null}],
+                ['m', {action: 'edit', element: null}],
+                ['d', {action: 'delete', element: null}]
+            ]),
+            scrollPosition: 0,
+            pendingPrefix: null as string | null,
+            pressedKeys: [] as string[]
         };
 
+
         const utils = {
-            createHint: (key: string, element: HTMLElement, color: string, isMenuItem: boolean = false) => {
+            createHint: (key: string, element: HTMLElement, type: "message" | "media" | "link" | "menu") => {
                 const hint = document.createElement("div");
                 hint.textContent = key;
                 hint.style.position = "absolute";
-                hint.style.backgroundColor = color;
                 hint.style.color = config.hintColors.text;
                 hint.style.padding = "3px 8px";
                 hint.style.borderRadius = "4px";
@@ -97,26 +154,67 @@ export default definePlugin({
                 hint.style.userSelect = "none";
                 hint.style.pointerEvents = "none";
 
+                switch (type) {
+                    case "message":
+                        hint.style.backgroundColor = config.hintColors.message;
+                        break;
+                    case "media":
+                        hint.style.backgroundColor = config.hintColors.media;
+                        break;
+                    case "link":
+                        hint.style.backgroundColor = config.hintColors.link;
+                        break;
+                    case "menu":
+                        hint.style.backgroundColor = config.hintColors.menu;
+                        break;
+                }
+
                 const rect = element.getBoundingClientRect();
 
-                if (isMenuItem) {
-                    hint.style.left = `${rect.left + window.scrollX + config.menuHintOffset.x}px`;
-                    hint.style.top = `${rect.top + window.scrollY + config.menuHintOffset.y}px`;
-                } else {
-                    const content = Array.from(DOM.messageContent()).find(c =>
-                        c.closest('.message__5126c') === element
-                    ) || element;
-
-                    const contentRect = content.getBoundingClientRect();
-                    hint.style.left = `${contentRect.left + window.scrollX + config.messageHintOffset.x}px`;
-                    hint.style.top = `${contentRect.top + window.scrollY + config.messageHintOffset.y}px`;
+                switch (type) {
+                    case "menu":
+                        hint.style.left = `${rect.left + window.scrollX + config.menuHintOffset.x}px`;
+                        hint.style.top = `${rect.top + window.scrollY + config.menuHintOffset.y}px`;
+                        break;
+                    default:
+                        const offset = type === "media" ? config.mediaHintOffset :
+                                     type === "link" ? config.linkHintOffset :
+                                     config.messageHintOffset;
+                        hint.style.left = `${rect.left + window.scrollX + offset.x}px`;
+                        hint.style.top = `${rect.top + window.scrollY + offset.y}px`;
+                        break;
                 }
 
                 document.body.appendChild(hint);
                 return hint;
             },
 
-            createShortcutsPanel: () => {
+            updateHintStyles: (currentCombo: string) => {
+                state.hints.forEach(hint => {
+                    const hintText = hint.textContent || '';
+                    if (hintText.startsWith(currentCombo)) {
+                        const zSpan = document.createElement('span');
+                        zSpan.textContent = 'z';
+                        zSpan.style.color = '#520175';
+                        zSpan.style.fontWeight = 'bold';
+
+                        const restSpan = document.createElement('span');
+                        restSpan.textContent = hintText.slice(1);
+                        restSpan.style.color = 'white';
+
+                        hint.innerHTML = '';
+                        hint.appendChild(zSpan);
+                        hint.appendChild(restSpan);
+
+                        hint.style.backgroundColor = config.hintColors.message;
+                        hint.style.display = "block";
+                    } else {
+                        hint.style.display = "none";
+                    }
+                });
+            },
+
+            createShortcutsPanel: (mode: "elements" | "menu") => {
                 if (state.shortcutsPanel) {
                     state.shortcutsPanel.remove();
                 }
@@ -126,7 +224,7 @@ export default definePlugin({
                 panel.dataset.vimcordShortcuts = "true";
 
                 const title = document.createElement("div");
-                title.textContent = "Raccourcis Message";
+                title.textContent = mode === "elements" ? "Sélection d'éléments" : "Actions Message";
                 title.style.fontSize = "14px";
                 title.style.fontWeight = "600";
                 title.style.marginBottom = "12px";
@@ -135,10 +233,16 @@ export default definePlugin({
                 title.style.letterSpacing = "0.5px";
                 panel.appendChild(title);
 
-                const shortcuts = [
-                    { key: "m", description: "Modifier le message" },
+                const shortcuts = mode === "elements" ? [
+                    { key: "Esc", description: "Annuler la sélection" },
+                    { key: "a-z", description: "Sélectionner un élément" },
+                    { key: "Rose", description: "Cliquer sur le lien"},
+                    { key: "Violet", description: "Interagir avec le message"}
+                ] : [
                     { key: "r", description: "Répondre au message" },
-                    { key: "d", description: "Supprimer le message" }
+                    { key: "m", description: "Modifier le message" },
+                    { key: "d", description: "Supprimer le message" },
+                    { key: "Esc", description: "Fermer le menu" }
                 ];
 
                 shortcuts.forEach(shortcut => {
@@ -167,13 +271,18 @@ export default definePlugin({
             },
 
             cleanup: () => {
+                state.scrollPosition = window.scrollY;
+
                 state.hints.forEach(h => h.remove());
                 state.hints = [];
                 state.mode = "idle";
+                state.elementsMap.clear();
+                state.pendingPrefix = null;
+                state.pressedKeys = [];
 
-                if (state.selectedMessage) {
-                    state.selectedMessage.style.backgroundColor = "";
-                    state.selectedMessage = null;
+                if (state.selectedElement) {
+                    state.selectedElement.style.backgroundColor = "";
+                    state.selectedElement = null;
                 }
 
                 if (state.menuObserver) {
@@ -185,103 +294,121 @@ export default definePlugin({
                     state.shortcutsPanel.remove();
                     state.shortcutsPanel = null;
                 }
+
+                setTimeout(() => {
+                    window.scrollTo(0, state.scrollPosition);
+                }, 0);
             },
 
-            showMessageHints: () => {
+            showElementHints: () => {
+                state.scrollPosition = window.scrollY;
                 utils.cleanup();
-                const visibleMessages = DOM.getVisibleMessages();
-                const messages = visibleMessages.slice(0, config.hintKeys.length);
+                const visibleElements = DOM.getVisibleElements();
+                state.elementsMap.clear();
 
-                messages.forEach((msg, i) => {
-                    const hint = utils.createHint(
-                        config.hintKeys[i],
-                        msg,
-                        config.hintColors.message
-                    );
+
+                const singleLetterElements = [
+                    ...visibleElements.messages,
+                    ...visibleElements.media,
+                    ...visibleElements.links
+                ].slice(0, 23);
+
+                singleLetterElements.forEach((element, index) => {
+                    if (index >= 23) return;
+                    const key = config.hintKeys[index];
+                    const type =
+                        visibleElements.messages.includes(element) ? "message" :
+                        visibleElements.media.includes(element) ? "media" : "link";
+
+                    const hint = utils.createHint(key, element, type);
                     state.hints.push(hint);
+                    state.elementsMap.set(key, {element, type});
                 });
 
-                if (messages.length > 0) {
-                    state.mode = "messageSelect";
-                }
-            },
 
-            setupMenuObserver: () => {
-                if (state.menuObserver) return;
+                const remainingElements = [
+                    ...visibleElements.messages,
+                    ...visibleElements.media,
+                    ...visibleElements.links
+                ].slice(23);
 
-                state.menuObserver = new MutationObserver((mutations) => {
-                    const menu = DOM.contextMenu();
-                    if (menu && state.mode === "messageSelect") {
-                        utils.showMenuHints();
-                        utils.createShortcutsPanel();
-                    }
+                remainingElements.forEach((element, index) => {
+                    if (index >= 23) return;
+                    const suffix = config.hintKeys[index];
+                    const keyCombo = `z${suffix}`;
+                    const type =
+                        visibleElements.messages.includes(element) ? "message" :
+                        visibleElements.media.includes(element) ? "media" : "link";
+
+                    const hint = utils.createHint(keyCombo, element, type);
+                    state.hints.push(hint);
+                    state.elementsMap.set(keyCombo, {element, type});
                 });
 
-                document.body.addEventListener('click', () => {
-                    if (state.mode === "menuSelect") {
-                        utils.cleanup();
-                    }
-                }, { once: true, capture: true });
-
-                const menu = DOM.contextMenu();
-                if (menu) {
-                    state.menuObserver.observe(menu, {
-                        childList: true,
-                        subtree: true
-                    });
-                }
+                utils.createShortcutsPanel("elements");
+                state.mode = "elementSelect";
             },
 
             showMenuHints: () => {
                 state.hints.forEach(h => h.remove());
                 state.hints = [];
 
-                const replyItem = DOM.replyMenuItem();
-                if (replyItem) {
-                    const hint = utils.createHint(
-                        'r',
-                        replyItem as HTMLElement,
-                        config.hintColors.menu,
-                        true
-                    );
-                    state.hints.push(hint);
-                }
+                const menuItems = DOM.getMenuItems();
+                state.menuActions.forEach((value, key) => {
+                    let element: HTMLElement | null = null;
+                    switch (value.action) {
+                        case 'reply': element = menuItems.reply as HTMLElement; break;
+                        case 'edit': element = menuItems.edit as HTMLElement; break;
+                        case 'delete': element = menuItems.delete as HTMLElement; break;
+                    }
 
-                const editItem = DOM.editMenuItem();
-                if (editItem) {
-                    const hint = utils.createHint(
-                        'm',
-                        editItem as HTMLElement,
-                        config.hintColors.menu,
-                        true
-                    );
-                    state.hints.push(hint);
-                }
+                    if (element) {
+                        const hint = utils.createHint(key, element, "menu");
+                        state.hints.push(hint);
+                        state.menuActions.set(key, { ...value, element });
+                    }
+                });
 
-                const deleteItem = DOM.deleteMenuItem();
-                if (deleteItem) {
-                    const hint = utils.createHint(
-                        'd',
-                        deleteItem as HTMLElement,
-                        config.hintColors.menu,
-                        true
-                    );
-                    state.hints.push(hint);
-                }
-
+                utils.createShortcutsPanel("menu");
                 state.mode = "menuSelect";
-                utils.setupMenuObserver();
             },
 
-            openContextMenu: (message: HTMLElement) => {
-                if (state.selectedMessage) {
-                    state.selectedMessage.style.backgroundColor = "";
+            setupMenuObserver: () => {
+                if (state.menuObserver) return;
+
+                state.menuObserver = new MutationObserver(() => {
+                    if (DOM.contextMenu() && state.mode === "elementSelect") {
+                        utils.showMenuHints();
+                    }
+                });
+
+                state.menuObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            },
+
+            clickElement: (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const event = new MouseEvent('click', {
+                    bubbles: true,
+                    clientX: rect.left + rect.width / 2,
+                    clientY: rect.top + rect.height / 2,
+                    view: window
+                });
+                element.dispatchEvent(event);
+                utils.cleanup();
+            },
+
+            openContextMenu: (element: HTMLElement) => {
+                if (state.selectedElement) {
+                    state.selectedElement.style.backgroundColor = "";
                 }
 
-                message.style.backgroundColor = config.highlightColor;
-                state.selectedMessage = message;
+                element.style.backgroundColor = config.highlightColor;
+                state.selectedElement = element;
 
-                const rect = message.getBoundingClientRect();
+                const rect = element.getBoundingClientRect();
                 const event = new MouseEvent('contextmenu', {
                     bubbles: true,
                     clientX: rect.left + rect.width / 2,
@@ -289,42 +416,16 @@ export default definePlugin({
                     view: window
                 });
 
-                message.dispatchEvent(event);
-
-                const menuObserver = new MutationObserver((_, observer) => {
-                    if (DOM.contextMenu()) {
-                        utils.showMenuHints();
-                        utils.createShortcutsPanel();
-                        observer.disconnect();
-                    }
-                });
-
-                menuObserver.observe(document.body, {
-                    childList: true,
-                    subtree: true
-                });
+                element.dispatchEvent(event);
+                utils.setupMenuObserver();
             },
 
-            selectMenuItem: (key: string) => {
-                if (key === 'r') {
-                    const replyItem = DOM.replyMenuItem();
-                    if (replyItem) {
-                        (replyItem as HTMLElement).click();
-                    }
+            executeMenuAction: (key: string) => {
+                const action = state.menuActions.get(key);
+                if (action && action.element) {
+                    action.element.click();
+                    utils.cleanup();
                 }
-                if (key === 'm') {
-                    const editItem = DOM.editMenuItem();
-                    if (editItem) {
-                        (editItem as HTMLElement).click();
-                    }
-                }
-                if (key === 'd') {
-                    const deleteItem = DOM.deleteMenuItem();
-                    if (deleteItem) {
-                        (deleteItem as HTMLElement).click();
-                    }
-                }
-                utils.cleanup();
             },
 
             shouldIgnoreEvent: (e: KeyboardEvent): boolean => {
@@ -339,11 +440,28 @@ export default definePlugin({
                                  target.tagName === 'SELECT';
 
                 return isEditable;
+            },
+
+            closeMediaViewer: () => {
+                const mediaViewer = DOM.getMediaViewer();
+                if (mediaViewer) {
+                    const closeButton = mediaViewer.querySelector('[aria-label="Fermer"]') as HTMLElement;
+                    if (closeButton) {
+                        closeButton.click();
+                        return true;
+                    }
+                }
+                return false;
             }
         };
 
+
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                if (utils.closeMediaViewer()) {
+                    return;
+                }
+
                 utils.cleanup();
                 return;
             }
@@ -353,32 +471,72 @@ export default definePlugin({
             }
 
             if (state.mode === "idle" && e.key === 's') {
-                utils.showMessageHints();
+                utils.showElementHints();
                 e.preventDefault();
                 e.stopPropagation();
                 return;
             }
 
-            if (state.mode === "messageSelect") {
-                const key = e.key.toLowerCase();
-                const index = config.hintKeys.indexOf(key);
-                if (index >= 0) {
-                    const visibleMessages = DOM.getVisibleMessages();
-                    if (index < visibleMessages.length) {
-                        utils.openContextMenu(visibleMessages[index]);
-                        e.preventDefault();
+            if (state.mode === "elementSelect") {
+                if (state.pendingPrefix) {
+                    if (e.key.length === 1 && e.key.match(/[a-z]/)) {
+                        state.pressedKeys.push(e.key);
+                        const fullCombo = state.pressedKeys.join('');
+                        utils.updateHintStyles(fullCombo);
+
+                        const elementInfo = state.elementsMap.get(fullCombo);
+                        if (elementInfo) {
+                            if (elementInfo.type === "message") {
+                                utils.openContextMenu(elementInfo.element);
+                            } else {
+                                utils.clickElement(elementInfo.element);
+                            }
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
+                    } else if (e.key === "Escape") {
+                        utils.cleanup();
                     }
+                    return;
+                }
+
+                if (e.key === 'z') {
+                    state.pendingPrefix = e.key;
+                    state.pressedKeys = [e.key];
+                    utils.updateHintStyles(state.pressedKeys.join(''));
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+
+                const key = e.key.toLowerCase();
+                const elementInfo = state.elementsMap.get(key);
+
+                if (elementInfo) {
+                    if (elementInfo.type === "message") {
+                        utils.openContextMenu(elementInfo.element);
+                    } else {
+                        utils.clickElement(elementInfo.element);
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                } else if (e.key === "Escape") {
+                    utils.cleanup();
+                    e.preventDefault();
+                    e.stopPropagation();
                 }
             }
 
             if (state.mode === "menuSelect") {
                 const key = e.key.toLowerCase();
-                if (key === 'r' || key === 'm' || key === 'd') {
-                    utils.selectMenuItem(key);
+                if (state.menuActions.has(key)) {
+                    utils.executeMenuAction(key);
                     e.preventDefault();
+                    e.stopPropagation();
                 }
             }
         };
+
 
         document.addEventListener('keydown', handleKeyDown, true);
 
